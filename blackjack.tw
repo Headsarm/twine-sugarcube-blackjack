@@ -1,0 +1,168 @@
+:: StoryTitle
+Blackjack Demo
+
+:: StoryData
+{
+	"format": "SugarCube",
+	"format-version": "2.34.1",
+    "ifid": "544B86C3-04DA-4AE9-8848-B907A1008D58"
+}
+
+:: Init Scripts [script]
+const values = {"2":2, "3":3, "4":4, "5":5, "6":6, "7":7, "8":8, "9":9, "10":10, "J":10, "Q":10, "K":10, "A":11}
+const suits = ["♠", "♣", "♥", "♦"]
+window.v = State.variables;
+v.deck = [];
+v.deckCount = 6;
+v.money = 100;
+v.bet = 0;
+v.player = [];
+v.dealer = [];
+v.pot = 0;
+v.discard = [];
+
+window.buildDeck = function(){
+    window.v = State.variables;
+    v.deck = [];
+    // fills the deck with a face and suit of every combination, however many times the shoe size is
+    for (let i = 0; i < v.deckCount; i++) {
+        suits.forEach(suit => {
+            Object.keys(values).forEach(value => {
+                var card = [value, suit];
+                v.deck.push(card);
+            });
+        });
+    }
+    // then shuffles it
+    v.deck.shuffle();
+}
+
+window.drawCard = function(){
+    // this draws a card off the deck
+    // and shuffles the discard pile back in when the deck is empty
+    window.v = State.variables;
+    if (v.deck.length < 1) {
+        v.deck = v.discard;
+        v.discard = [];
+        v.deck.shuffle();
+    }
+    return v.deck.pop();
+}
+
+window.handValue = function(hand){
+    // this is mostly to figure out if an Ace should be worth 11 or 1.
+    let hvalues = [];
+    hand.forEach(card => {
+        // put the raw card values into an array, assume all Aces are 11
+        hvalues.push(values[card[0]]);
+    });
+    // do this only if the player has a value higher than 21
+    // and only if there is an Ace being counted as 11
+    while ((hvalues.reduce((a, b) => a + b) > 21) && hvalues.includes(11)) {
+        // take out an 11 and put in a 1
+        hvalues.splice(hvalues.indexOf(11), 1);
+        hvalues.push(1);
+    }
+    // now return the total value
+    // with any aces that needed to be counted as 1
+    return hvalues.reduce((a, b) => a + b);
+}
+
+window.startDeal = function(){
+    window.v = State.variables;
+    // check if invalid bet was placed, and prevent starting a new game
+    if ((v.bet < 1) || (v.bet > v.money)) return;
+    // start dealing by initializing default values
+    v.badbet = false;
+    v.hideDealer = true;
+    v.result = "";
+    v.pot = v.bet * 2;
+    v.money -= v.bet
+    // take existing dealer/player cards and put them into $discard
+    while (v.player.length) {
+        let card = v.player.pop();
+        v.discard.push(card);
+    }
+    while (v.dealer.length) {
+        let card = v.dealer.pop();
+        v.discard.push(card);
+    }
+    // deal 2 cards each to player and dealer
+    v.player = [drawCard(), drawCard()];
+    v.dealer = [drawCard(), drawCard()];
+    // check for blackjack wins
+    if ((handValue(v.player) == 21) || (handValue(v.dealer) == 21)) {
+        playerStand(true);
+    }
+}
+
+window.playerHit = function(){
+    // deals the player 1 extra card
+    window.v = State.variables;
+    v.player.push(drawCard());
+    // player stands automatically if hand value is over 21 (bust)
+    if (handValue(v.player) > 21) playerStand();
+}
+
+window.playerStand = function(checkBJ=false){
+    window.v = State.variables;
+    v.hideDealer = false;
+    // snapshot of player's hand value
+    let phv = handValue(v.player);
+    // dealer draws cards if player hasn't busted and dealer is losing with less than 17
+    while ((phv <= 21) && (handValue(v.dealer) < 17) && (handValue(v.dealer) < phv)) {
+        v.dealer.push(drawCard());
+    }
+    // dealer hand value snapshot
+    let dhv = handValue(v.dealer);
+    if (phv == dhv) { // push
+        v.result = "@@color:green;Push! (+$"+v.bet+")@@"
+        v.money += Math.ceil(v.pot / 2);
+    } else if (checkBJ && (dhv == 21)) { // dealer has 21 after initial deal
+        v.result = "@@color:red;Dealer Blackjack! (-$"+v.bet+")@@"
+    } else if (checkBJ && (phv == 21)) { // player has 21 after initial deal
+        v.result = "@@color:green;Blackjack! (+$"+Math.ceil(v.pot*1.5)+")@@"
+        v.money += Math.ceil(v.pot*1.5);
+    } else if (phv > 21) { // player busted
+        v.result = "@@color:red;Busted! (-$"+v.bet+")@@"
+    } else if ((dhv <= 21) && (dhv > phv)) { // straight loss
+        v.result = "@@color:red;Lose! (-$"+v.bet+")@@"
+    } else { // straight win
+        v.result = "@@color:green;Win! (+$"+v.pot+")@@"
+        v.money += v.pot;
+    }
+    v.pot = 0;
+}
+
+window.showHand = function(hand, isDealer=false){
+    // formats the string display of dealer and player cards
+    window.v = State.variables;
+    let handOut = [];
+    hand.forEach(card => {
+        handOut.push(card[0]+card[1]);
+    });
+    // hides the dealer's 2nd card while player chooses to hit/stand
+    if (isDealer) handOut[handOut.length-1] = "??";
+    return handOut.join(" / ");
+}
+
+:: Start
+Number of decks: <<numberbox "$deckCount" $deckCount>>
+<<button "Bet" "Bet">><<run buildDeck()>><</button>>
+
+:: Bet
+$deck.length cards remain in the shoe.
+Money: $<<=$money>>
+
+<<set _bet to Math.ceil($money/2)>>Amount to bet: $<<numberbox "$bet" _bet>>
+<<button "Deal" "Deal">><<set $badbet to true>><<run startDeal()>><</button>>
+
+:: Deal
+<<if $badbet>>@@color:red;Invalid bet amount!@@
+<<button "Bet" "Bet">><</button>><<else>>$deck.length cards remain in the shoe.
+Money: $<<=$money>>
+Pot: $<<=$pot>>
+
+Dealer: <<= showHand($dealer, $hideDealer)>><<if !$hideDealer>> [<<= handValue($dealer)>>]<</if>>
+Player: <<= showHand($player)>> [<<= handValue($player)>>]<<if $result>> $result<<set $result to "">><</if>>
+<<if $hideDealer>><<button "Hit" "Deal">><<run playerHit()>><</button>><<button "Stand" "Deal">><<run playerStand()>><</button>><<else>><<button "Bet" "Bet">><</button>><</if>><</if>>
